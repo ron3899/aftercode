@@ -1,0 +1,218 @@
+use crate::client::Client;
+use crate::config::{Config, Privacy};
+use crate::{collect, credentials};
+use std::io::{self, Write};
+
+fn prompt(q: &str, default: &str) -> String {
+    print!("{q} [{default}]: ");
+    io::stdout().flush().ok();
+    let mut s = String::new();
+    io::stdin().read_line(&mut s).ok();
+    let s = s.trim();
+    if s.is_empty() {
+        default.to_string()
+    } else {
+        s.to_string()
+    }
+}
+
+pub async fn init() -> anyhow::Result<()> {
+    let default_name = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .unwrap_or_else(|| "project".into());
+    let name = prompt("Project name", &default_name);
+    let language = prompt("Language (he/en)", "en");
+    let length: u8 = prompt("Episode length (5/10/15)", "10")
+        .parse()
+        .unwrap_or(10);
+    let api = prompt("Backend URL", "http://localhost:8080");
+
+    let token = credentials::load_token().ok();
+    let project_id = if let Some(t) = token {
+        match Client::new(api.clone(), t)
+            .register_project(&name, &language)
+            .await
+        {
+            Ok(id) => id,
+            Err(e) => {
+                eprintln!("warning: could not register project ({e}); using local id");
+                "local".into()
+            }
+        }
+    } else {
+        eprintln!(
+            "Not logged in — run `aftercode login <token>` then `aftercode init` again to register."
+        );
+        "local".into()
+    };
+
+    let cfg = Config {
+        project_id,
+        project_name: name,
+        language,
+        episode_length_minutes: length,
+        api_base_url: api,
+        privacy: Privacy::default(),
+    };
+    cfg.save()?;
+    println!("Wrote .aftercode/config.json");
+    Ok(())
+}
+
+pub fn login(token: String) -> anyhow::Result<()> {
+    credentials::save_token(&token)?;
+    println!("Saved credentials.");
+    Ok(())
+}
+
+pub async fn status() -> anyhow::Result<()> {
+    let cfg = Config::load()?;
+    let logged_in = credentials::load_token().is_ok();
+    let git_ok = git2::Repository::open(".").is_ok();
+    let hooks_ok = std::path::Path::new(".aftercode/events").exists();
+    println!("Aftercode status\n");
+    println!("Project:   {}", cfg.project_name);
+    println!("Language:  {}", cfg.language);
+    println!("Backend:   {}", cfg.api_base_url);
+    println!("Logged in: {}", if logged_in { "yes" } else { "no" });
+    println!(
+        "Git:       {}",
+        if git_ok { "connected" } else { "not a repo" }
+    );
+    println!(
+        "Hooks:     {}",
+        if hooks_ok {
+            "connected"
+        } else {
+            "not configured"
+        }
+    );
+    Ok(())
+}
+
+pub fn preview() -> anyhow::Result<()> {
+    let cfg = Config::load()?;
+    let ctx = collect::build(&cfg, None, "today", None)?;
+    println!("Aftercode will send:\n");
+    println!("Changed files:");
+    for f in &ctx.changed_files {
+        println!("  - {f}");
+    }
+    if let Some(d) = &ctx.git_diff_summary {
+        println!("\nDiff: {d}");
+    }
+    if !ctx.terminal_errors.is_empty() {
+        println!("\nDetected errors:");
+        for e in &ctx.terminal_errors {
+            println!("  - {e}");
+        }
+    }
+    println!("\nEvents collected: {}", ctx.events.len());
+    println!(
+        "Language: {:?}  Length: {} min",
+        ctx.language, ctx.episode_length_minutes
+    );
+    Ok(())
+}
+
+pub async fn episode(
+    language: Option<String>,
+    from: String,
+    length: Option<u8>,
+) -> anyhow::Result<()> {
+    let cfg = Config::load()?;
+    let token = credentials::load_token()?;
+    let ctx = collect::build(&cfg, language.clone(), &from, length)?;
+    let lang = language.unwrap_or_else(|| cfg.language.clone());
+    let client = Client::new(cfg.api_base_url.clone(), token);
+
+    println!("Uploading session and generating episode...");
+    let episode_id = client.generate_episode(&ctx, &lang).await?;
+
+    use indicatif::{ProgressBar, ProgressStyle};
+    let pb = ProgressBar::new_spinner();
+    pb.set_style(
+        ProgressStyle::default_spinner()
+            .template("{spinner} {msg}")
+            .unwrap(),
+    );
+    let title = loop {
+        let s = client.episode_status(&episode_id).await?;
+        let status = s["status"].as_str().unwrap_or("queued").to_string();
+        pb.set_message(status.clone());
+        pb.tick();
+        if status == "ready" {
+            break s["title"].as_str().unwrap_or("").to_string();
+        }
+        if status == "failed" {
+            pb.finish_and_clear();
+            anyhow::bail!(
+                "Episode generation failed: {}",
+                s["error"].as_str().unwrap_or("unknown")
+            );
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+    };
+    pb.finish_and_clear();
+
+    println!("\nGenerated episode:\n  \"{title}\"\n");
+    println!(
+        "Open: {}/episodes/{episode_id}",
+        cfg.api_base_url.trim_end_matches('/')
+    );
+    Ok(())
+}
+
+pub fn ignore(pattern: String) -> anyhow::Result<()> {
+    let mut cfg = Config::load()?;
+    if !cfg.privacy.ignore_paths.contains(&pattern) {
+        cfg.privacy.ignore_paths.push(pattern.clone());
+        cfg.save()?;
+        println!("Added ignore: {pattern}");
+    } else {
+        println!("Already ignored: {pattern}");
+    }
+    Ok(())
+}
+
+pub fn open() -> anyhow::Result<()> {
+    let cfg = Config::load()?;
+    let url = cfg.api_base_url;
+    let cmd = if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "xdg-open"
+    };
+    std::process::Command::new(cmd).arg(&url).status().ok();
+    println!("Opening {url}");
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    #[serial_test::serial(fs)]
+    fn ignore_appends_in_tempdir() {
+        let dir = tempfile::tempdir().unwrap();
+        let prev = std::env::current_dir().unwrap();
+        std::env::set_current_dir(dir.path()).unwrap();
+        Config {
+            project_id: "p".into(),
+            project_name: "p".into(),
+            language: "en".into(),
+            episode_length_minutes: 10,
+            api_base_url: "http://x".into(),
+            privacy: Privacy::default(),
+        }
+        .save()
+        .unwrap();
+        ignore("*.secret".into()).unwrap();
+        let c = Config::load().unwrap();
+        std::env::set_current_dir(prev).unwrap();
+        assert!(c.privacy.ignore_paths.contains(&"*.secret".to_string()));
+    }
+}
