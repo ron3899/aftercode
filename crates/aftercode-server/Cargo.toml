@@ -1,0 +1,37 @@
+[package]
+name = "aftercode-server"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[[bin]]
+name = "aftercode-server"
+path = "src/main.rs"
+
+[dependencies]
+aftercode-core = { path = "../aftercode-core" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "json", "uuid", "chrono", "macros"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+mp3lame-encoder = "0.2"
+aws-sdk-s3 = "1"
+aws-config = "1"
+base64 = "0.22"
+sha2 = "0.10"
+
+[dev-dependencies]
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+serial_test = "3"
