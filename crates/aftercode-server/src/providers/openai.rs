@@ -1,7 +1,15 @@
 use super::llm::{LlmProvider, NormalizedContext, ScriptOpts};
 use crate::config::Config;
 use aftercode_core::episode::{EpisodeScript, LearningTopic};
+use aftercode_core::session::Language;
 use async_trait::async_trait;
+
+fn lang_code(l: Language) -> &'static str {
+    match l {
+        Language::He => "he",
+        Language::En => "en",
+    }
+}
 
 pub struct OpenAiProvider {
     key: String,
@@ -65,9 +73,11 @@ impl LlmProvider for OpenAiProvider {
             opts.minutes,
             serde_json::to_string(topics)?
         );
-        let v = self
+        let mut v = self
             .call_json("Two-speaker technical podcast. JSON only.", &user)
             .await?;
+        // The model may echo "English"/"Hebrew"; force the canonical enum code.
+        v["language"] = serde_json::Value::String(lang_code(opts.language).into());
         Ok(serde_json::from_value(v)?)
     }
 }

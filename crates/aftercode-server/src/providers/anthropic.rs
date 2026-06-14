@@ -125,9 +125,15 @@ impl LlmProvider for AnthropicProvider {
             lang_name(opts.language),
             serde_json::to_string_pretty(topics)?
         );
-        let v = self
+        let mut v = self
             .call_json(&script_system(opts.language), &user, script_schema())
             .await?;
+        // Force the canonical enum code regardless of what the model emitted.
+        let code = match opts.language {
+            Language::He => "he",
+            Language::En => "en",
+        };
+        v["language"] = serde_json::Value::String(code.into());
         Ok(serde_json::from_value(v)?)
     }
 }
