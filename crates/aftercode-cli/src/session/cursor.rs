@@ -166,13 +166,15 @@ fn workspace_composer_ids(ws_db: &Path) -> Vec<String> {
 }
 
 fn open_ro(path: &Path) -> Option<Connection> {
-    // immutable=1 reads cleanly even while Cursor holds the DB (WAL).
-    let uri = format!("file:{}?immutable=1", path.to_string_lossy());
-    Connection::open_with_flags(
-        uri,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
-    )
-    .ok()
+    let p = path.to_string_lossy();
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI;
+    // `mode=ro` (read-only, NOT immutable) merges the -wal, so an active Cursor
+    // session — whose newest data lives in the WAL, not the main db file — is
+    // visible. `immutable=1` ignores the WAL and would miss/mis-rank it.
+    // Fall back to immutable when ro can't open (e.g. Cursor closed, no -shm).
+    Connection::open_with_flags(format!("file:{p}?mode=ro"), flags)
+        .or_else(|_| Connection::open_with_flags(format!("file:{p}?immutable=1"), flags))
+        .ok()
 }
 
 fn kv_get(conn: &Connection, key: &str) -> Option<String> {

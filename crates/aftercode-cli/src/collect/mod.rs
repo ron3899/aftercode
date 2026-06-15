@@ -64,7 +64,10 @@ pub fn parse_transcript_input(text: &str) -> Vec<CodingEvent> {
         if t.trim().is_empty() {
             continue;
         }
-        let role = v.get("role").and_then(|x| x.as_str()).unwrap_or("assistant");
+        let role = v
+            .get("role")
+            .and_then(|x| x.as_str())
+            .unwrap_or("assistant");
         let event_type = if role == "user" {
             EventType::UserPrompt
         } else {
@@ -316,7 +319,9 @@ mod tests {
         let big = "y".repeat(PER_EVENT_CHARS * 2 + 10);
         let evs = parse_transcript_input(&big);
         assert_eq!(evs.len(), 3); // 2 full chunks + remainder
-        assert!(evs.iter().all(|e| e.content.chars().count() <= PER_EVENT_CHARS));
+        assert!(evs
+            .iter()
+            .all(|e| e.content.chars().count() <= PER_EVENT_CHARS));
         assert!(evs.iter().all(|e| e.event_type == EventType::AgentResponse));
     }
 

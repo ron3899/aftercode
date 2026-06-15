@@ -1,5 +1,5 @@
 use crate::client::Client;
-use crate::config::{Config, Privacy};
+use crate::config::Config;
 use crate::{collect, credentials};
 use std::io::{self, Write};
 
@@ -17,18 +17,43 @@ fn prompt(q: &str, default: &str) -> String {
 }
 
 pub async fn init() -> anyhow::Result<()> {
-    let default_name = std::env::current_dir()
-        .ok()
-        .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+    // Re-running init must NOT silently reset a working config (backend URL,
+    // project id). Load any existing config and use its values as the defaults.
+    let existing = Config::load().ok();
+    let default_name = existing
+        .as_ref()
+        .map(|c| c.project_name.clone())
+        .or_else(|| {
+            std::env::current_dir()
+                .ok()
+                .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        })
         .unwrap_or_else(|| "project".into());
-    let name = prompt("Project name", &default_name);
-    let language = prompt("Language (he/en)", "en");
-    let length: u8 = prompt("Episode length (5/10/15)", "10")
-        .parse()
+    let default_lang = existing
+        .as_ref()
+        .map(|c| c.language.clone())
+        .unwrap_or_else(|| "en".into());
+    let default_len = existing
+        .as_ref()
+        .map(|c| c.episode_length_minutes)
         .unwrap_or(10);
-    let api = prompt("Backend URL", "http://localhost:8080");
+    let default_api = existing
+        .as_ref()
+        .map(|c| c.api_base_url.clone())
+        .unwrap_or_else(|| "http://localhost:8080".into());
+
+    let name = prompt("Project name", &default_name);
+    let language = prompt("Language (he/en)", &default_lang);
+    let length: u8 = prompt("Episode length (5/10/15)", &default_len.to_string())
+        .parse()
+        .unwrap_or(default_len);
+    let api = prompt("Backend URL", &default_api);
 
     let token = credentials::load_token().ok();
+    let prior_project = existing
+        .as_ref()
+        .map(|c| c.project_id.clone())
+        .filter(|p| p != "local");
     let project_id = if let Some(t) = token {
         match Client::new(api.clone(), t)
             .register_project(&name, &language)
@@ -36,15 +61,19 @@ pub async fn init() -> anyhow::Result<()> {
         {
             Ok(id) => id,
             Err(e) => {
-                eprintln!("warning: could not register project ({e}); using local id");
-                "local".into()
+                // Keep the previously-registered project rather than dropping to "local".
+                let fallback = prior_project.clone().unwrap_or_else(|| "local".into());
+                eprintln!(
+                    "warning: could not register project ({e}); keeping project_id={fallback}"
+                );
+                fallback
             }
         }
     } else {
         eprintln!(
             "Not logged in — run `aftercode login <token>` then `aftercode init` again to register."
         );
-        "local".into()
+        prior_project.unwrap_or_else(|| "local".into())
     };
 
     let cfg = Config {
@@ -53,7 +82,8 @@ pub async fn init() -> anyhow::Result<()> {
         language,
         episode_length_minutes: length,
         api_base_url: api,
-        privacy: Privacy::default(),
+        // preserve existing privacy/ignore settings on re-init
+        privacy: existing.map(|c| c.privacy).unwrap_or_default(),
     };
     cfg.save()?;
     println!("Wrote .aftercode/config.json");
@@ -160,9 +190,10 @@ pub async fn episode(
             std::io::stdin().read_to_string(&mut buf)?;
             Some(buf)
         }
-        Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
-            anyhow::anyhow!("could not read --transcript file {path}: {e}")
-        })?),
+        Some(path) => Some(
+            std::fs::read_to_string(path)
+                .map_err(|e| anyhow::anyhow!("could not read --transcript file {path}: {e}"))?,
+        ),
     };
 
     if transcript_text.is_some() {
@@ -173,15 +204,24 @@ pub async fn episode(
         println!("No agent session detected — using git diff only.");
     }
 
-    let ctx = collect::build(&cfg, language.clone(), &from, length, agent, transcript_text)?;
+    let ctx = collect::build(
+        &cfg,
+        language.clone(),
+        &from,
+        length,
+        agent,
+        transcript_text,
+    )?;
 
     // Guardrail: refuse to ship a "thin" episode built from a lone diff with no
     // conversation behind it (the package-lock.json trap), unless forced.
     use aftercode_core::session::EventType;
-    let has_session = ctx
-        .events
-        .iter()
-        .any(|e| matches!(e.event_type, EventType::UserPrompt | EventType::AgentResponse));
+    let has_session = ctx.events.iter().any(|e| {
+        matches!(
+            e.event_type,
+            EventType::UserPrompt | EventType::AgentResponse
+        )
+    });
     if !has_session && !allow_thin {
         anyhow::bail!(
             "No session conversation was captured — the episode would be built from the git \
@@ -262,6 +302,7 @@ pub fn open() -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Privacy;
     #[test]
     #[serial_test::serial(fs)]
     fn ignore_appends_in_tempdir() {

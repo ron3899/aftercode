@@ -16,15 +16,32 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Vec<String> = std::env::args().collect();
     if args.get(1).map(|s| s.as_str()) == Some("seed-user") {
+        let rotate = args.iter().any(|a| a == "--rotate");
         let email = args
-            .get(2)
+            .iter()
+            .skip(2)
+            .find(|a| !a.starts_with("--"))
             .cloned()
             .unwrap_or_else(|| "dev@example.com".into());
-        let token = format!("ak_{}", uuid::Uuid::new_v4().simple());
-        let hash = auth::hash_token(&token);
         let db = sqlx::postgres::PgPoolOptions::new()
             .connect(&cfg.database_url)
             .await?;
+        let existing: Option<uuid::Uuid> =
+            sqlx::query_scalar("SELECT id FROM users WHERE email = $1")
+                .bind(&email)
+                .fetch_optional(&db)
+                .await?;
+        // Don't clobber a working token on re-run — that silently logs out the
+        // CLI. Only issue a token for a new user, or when --rotate is given.
+        if existing.is_some() && !rotate {
+            println!(
+                "user {email} already exists; existing token kept. \
+                 Pass --rotate to issue a new token (invalidates the old one)."
+            );
+            return Ok(());
+        }
+        let token = format!("ak_{}", uuid::Uuid::new_v4().simple());
+        let hash = auth::hash_token(&token);
         sqlx::query(
             "INSERT INTO users (email, token_hash) VALUES ($1,$2)
              ON CONFLICT (email) DO UPDATE SET token_hash=EXCLUDED.token_hash",
