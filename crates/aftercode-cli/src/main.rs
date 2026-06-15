@@ -40,6 +40,13 @@ enum Cmd {
         /// Force a specific agent session source (claude-code|codex|cursor)
         #[arg(long)]
         agent: Option<String>,
+        /// Read the session transcript from a file, or `-` for stdin. When set,
+        /// this is the session source and on-disk auto-detection is skipped.
+        #[arg(long)]
+        transcript: Option<String>,
+        /// Generate even when no session conversation was captured (diff only).
+        #[arg(long)]
+        allow_thin: bool,
     },
     /// Add a path/glob to the ignore list
     Ignore { pattern: String },
@@ -60,7 +67,9 @@ async fn main() -> anyhow::Result<()> {
             from,
             length,
             agent,
-        } => commands::episode(language, from, length, agent).await,
+            transcript,
+            allow_thin,
+        } => commands::episode(language, from, length, agent, transcript, allow_thin).await,
         Cmd::Ignore { pattern } => commands::ignore(pattern),
         Cmd::Open => commands::open(),
     }

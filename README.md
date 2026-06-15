@@ -55,7 +55,21 @@ aftercode preview
 aftercode episode --language en
 ```
 
-`aftercode episode` prints the generated title, topics, and an episode URL.
+`aftercode episode` prints the generated title and the audio link
+(`/static/episodes/<id>.mp3`).
+
+### Reliable session capture
+
+Episodes are built from your agent **session** + the git **diff**. Aftercode auto-detects
+the session from Claude Code / Codex / Cursor on-disk storage, but that can miss (e.g. a
+Cursor run from a subfolder). Two safeguards:
+
+- **Hand the transcript in directly** — the agent that ran the CLI already has the session,
+  so pipe it: `your-transcript | aftercode episode --transcript -` (accepts a Claude Code
+  `.jsonl`, simple `{"role","text"}` JSONL, or plain text). This skips disk auto-detection.
+- **Thin-episode guardrail** — if no session conversation is captured, `episode` refuses
+  (so you never get an episode about a lone `package-lock.json`). Override with `--allow-thin`.
+  Run `aftercode preview` first to see what was collected.
 
 ## Configuration
 

@@ -99,7 +99,7 @@ pub async fn status() -> anyhow::Result<()> {
 pub fn preview() -> anyhow::Result<()> {
     let cfg = Config::load()?;
     let agent = collect::detected_agent(None);
-    let ctx = collect::build(&cfg, None, "today", None, None)?;
+    let ctx = collect::build(&cfg, None, "today", None, None, None)?;
     println!("Aftercode will send:\n");
     println!(
         "Agent session: {}",
@@ -128,6 +128,11 @@ pub fn preview() -> anyhow::Result<()> {
     println!("  agent messages: {}", count(EventType::AgentResponse));
     println!("  file changes:   {}", count(EventType::FileChanged));
     println!("  diff hunks:     {}", count(EventType::GitDiff));
+    if count(EventType::UserPrompt) == 0 && count(EventType::AgentResponse) == 0 {
+        println!(
+            "\n⚠  No agent session captured — an episode now would be built from the git diff\n   only (likely thin). Pipe your conversation with `--transcript -`, run from the\n   workspace root your agent has open, or pass `--allow-thin` to force it."
+        );
+    }
     println!(
         "\nLanguage: {:?}  Length: {} min",
         ctx.language, ctx.episode_length_minutes
@@ -140,15 +145,53 @@ pub async fn episode(
     from: String,
     length: Option<u8>,
     agent: Option<String>,
+    transcript: Option<String>,
+    allow_thin: bool,
 ) -> anyhow::Result<()> {
     let cfg = Config::load()?;
     let token = credentials::load_token()?;
-    if let Some(a) = collect::detected_agent(agent.as_deref()) {
+
+    // Resolve an explicit session handoff: `--transcript -` (stdin) or a file path.
+    let transcript_text: Option<String> = match transcript.as_deref() {
+        None => None,
+        Some("-") => {
+            use std::io::Read;
+            let mut buf = String::new();
+            std::io::stdin().read_to_string(&mut buf)?;
+            Some(buf)
+        }
+        Some(path) => Some(std::fs::read_to_string(path).map_err(|e| {
+            anyhow::anyhow!("could not read --transcript file {path}: {e}")
+        })?),
+    };
+
+    if transcript_text.is_some() {
+        println!("Using the transcript you handed in for this episode.");
+    } else if let Some(a) = collect::detected_agent(agent.as_deref()) {
         println!("Using {a} session for this repo.");
     } else {
         println!("No agent session detected — using git diff only.");
     }
-    let ctx = collect::build(&cfg, language.clone(), &from, length, agent)?;
+
+    let ctx = collect::build(&cfg, language.clone(), &from, length, agent, transcript_text)?;
+
+    // Guardrail: refuse to ship a "thin" episode built from a lone diff with no
+    // conversation behind it (the package-lock.json trap), unless forced.
+    use aftercode_core::session::EventType;
+    let has_session = ctx
+        .events
+        .iter()
+        .any(|e| matches!(e.event_type, EventType::UserPrompt | EventType::AgentResponse));
+    if !has_session && !allow_thin {
+        anyhow::bail!(
+            "No session conversation was captured — the episode would be built from the git \
+             diff alone and would be thin.\n\nDo one of:\n  • pipe your conversation:  \
+             <your-agent-transcript> | aftercode episode --transcript -\n  • run from the \
+             workspace root your agent has open (so the session is detected)\n  • force it:  \
+             aftercode episode --allow-thin\n\nRun `aftercode preview` to see what was collected."
+        );
+    }
+
     let lang = language.unwrap_or_else(|| cfg.language.clone());
     let client = Client::new(cfg.api_base_url.clone(), token);
 
@@ -183,7 +226,7 @@ pub async fn episode(
 
     println!("\nGenerated episode:\n  \"{title}\"\n");
     println!(
-        "Open: {}/episodes/{episode_id}",
+        "Listen: {}/static/episodes/{episode_id}.mp3",
         cfg.api_base_url.trim_end_matches('/')
     );
     Ok(())
