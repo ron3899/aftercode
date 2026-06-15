@@ -8,7 +8,7 @@ use uuid::Uuid;
 #[allow(clippy::type_complexity)]
 pub async fn list(
     State(st): State<AppState>,
-    AuthUser(uid): AuthUser,
+    AuthUser(_): AuthUser,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let rows = sqlx::query_as::<
         _,
@@ -26,9 +26,8 @@ pub async fn list(
         "SELECT e.id, e.title, e.language, e.status::text, e.duration_seconds, e.topics_json,
                 e.created_at, p.name
          FROM podcast_episodes e JOIN projects p ON p.id = e.project_id
-         WHERE e.user_id=$1 ORDER BY e.created_at DESC",
+         ORDER BY e.created_at DESC",
     )
-    .bind(uid)
     .fetch_all(&st.db)
     .await
     .map_err(|e| ServerError::Other(e.into()))?;
@@ -55,7 +54,7 @@ pub async fn list(
 #[allow(clippy::type_complexity)]
 pub async fn detail(
     State(st): State<AppState>,
-    AuthUser(uid): AuthUser,
+    AuthUser(_): AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let row = sqlx::query_as::<
@@ -77,10 +76,9 @@ pub async fn detail(
     >(
         "SELECT id, title, language, status::text, audio_url, duration_seconds, summary,
                 transcript_text, topics_json, script_json, error, created_at
-         FROM podcast_episodes WHERE id=$1 AND user_id=$2",
+         FROM podcast_episodes WHERE id=$1",
     )
     .bind(id)
-    .bind(uid)
     .fetch_optional(&st.db)
     .await
     .map_err(|e| ServerError::Other(e.into()))?
@@ -93,16 +91,15 @@ pub async fn detail(
 
 pub async fn retry(
     State(st): State<AppState>,
-    AuthUser(uid): AuthUser,
+    AuthUser(_): AuthUser,
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let row = sqlx::query_scalar::<_, serde_json::Value>(
         "SELECT s.context_json FROM podcast_episodes e
          JOIN coding_sessions s ON s.id = e.session_id
-         WHERE e.id=$1 AND e.user_id=$2",
+         WHERE e.id=$1",
     )
     .bind(id)
-    .bind(uid)
     .fetch_optional(&st.db)
     .await
     .map_err(|e| ServerError::Other(e.into()))?
