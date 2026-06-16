@@ -28,7 +28,7 @@ pub async fn generate(
         let sid =
             Uuid::parse_str(&sid).map_err(|_| ServerError::BadRequest("bad session_id".into()))?;
         let json: serde_json::Value =
-            sqlx::query_scalar("SELECT context_json FROM coding_sessions WHERE id=$1")
+            sqlx::query_scalar("SELECT context_json FROM coding_sessions WHERE id=?")
                 .bind(sid)
                 .fetch_optional(&st.db)
                 .await
@@ -44,14 +44,16 @@ pub async fn generate(
             "need session_id or session_context".into(),
         ))?;
         let json = serde_json::to_value(&ctx).map_err(|e| ServerError::Other(e.into()))?;
-        let sid = sqlx::query_scalar::<_, Uuid>(
-            "INSERT INTO coding_sessions (project_id,user_id,source,context_json)
-             VALUES ($1,$2,'cli',$3) RETURNING id",
+        let sid = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO coding_sessions (id, project_id, user_id, source, context_json)
+             VALUES (?, ?, ?, 'cli', ?)",
         )
+        .bind(sid)
         .bind(project)
         .bind(uid)
         .bind(json)
-        .fetch_one(&st.db)
+        .execute(&st.db)
         .await
         .map_err(|e| ServerError::Other(e.into()))?;
         (sid, ctx)
@@ -76,7 +78,7 @@ pub async fn status(
     Path(id): Path<Uuid>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let row = sqlx::query_as::<_, (String, Option<String>, Option<String>)>(
-        "SELECT status::text, title, error FROM podcast_episodes WHERE id=$1",
+        "SELECT status, title, error FROM podcast_episodes WHERE id=?",
     )
     .bind(id)
     .fetch_optional(&st.db)

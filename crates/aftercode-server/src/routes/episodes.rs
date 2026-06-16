@@ -19,11 +19,11 @@ pub async fn list(
             String,
             Option<i32>,
             Option<serde_json::Value>,
-            chrono::DateTime<chrono::Utc>,
+            String,
             String,
         ),
     >(
-        "SELECT e.id, e.title, e.language, e.status::text, e.duration_seconds, e.topics_json,
+        "SELECT e.id, e.title, e.language, e.status, e.duration_seconds, e.topics_json,
                 e.created_at, p.name
          FROM podcast_episodes e JOIN projects p ON p.id = e.project_id
          ORDER BY e.created_at DESC",
@@ -45,7 +45,7 @@ pub async fn list(
                 .unwrap_or_default();
             serde_json::json!({ "id":id,"title":title,"language":lang,"status":status,
                 "duration_seconds":dur,"topics":topic_titles,"project_name":proj,
-                "created_at":created.to_rfc3339() })
+                "created_at":created })
         })
         .collect();
     Ok(Json(serde_json::json!({ "episodes": items })))
@@ -71,12 +71,12 @@ pub async fn detail(
             Option<serde_json::Value>,
             Option<serde_json::Value>,
             Option<String>,
-            chrono::DateTime<chrono::Utc>,
+            String,
         ),
     >(
-        "SELECT id, title, language, status::text, audio_url, duration_seconds, summary,
+        "SELECT id, title, language, status, audio_url, duration_seconds, summary,
                 transcript_text, topics_json, script_json, error, created_at
-         FROM podcast_episodes WHERE id=$1",
+         FROM podcast_episodes WHERE id=?",
     )
     .bind(id)
     .fetch_optional(&st.db)
@@ -86,7 +86,7 @@ pub async fn detail(
     Ok(Json(serde_json::json!({
         "id":row.0,"title":row.1,"language":row.2,"status":row.3,"audio_url":row.4,
         "duration_seconds":row.5,"summary":row.6,"transcript_text":row.7,
-        "topics":row.8,"script":row.9,"error":row.10,"created_at":row.11.to_rfc3339() })))
+        "topics":row.8,"script":row.9,"error":row.10,"created_at":row.11 })))
 }
 
 pub async fn retry(
@@ -97,7 +97,7 @@ pub async fn retry(
     let row = sqlx::query_scalar::<_, serde_json::Value>(
         "SELECT s.context_json FROM podcast_episodes e
          JOIN coding_sessions s ON s.id = e.session_id
-         WHERE e.id=$1",
+         WHERE e.id=?",
     )
     .bind(id)
     .fetch_optional(&st.db)
@@ -127,45 +127,28 @@ mod tests {
     use uuid::Uuid;
 
     async fn setup() -> (AppState, String, Uuid) {
-        let cfg = crate::config::Config {
-            database_url: std::env::var("DATABASE_URL").unwrap(),
-            bind_addr: "127.0.0.1:0".into(),
-            public_url: "http://t".into(),
-            llm_provider: "mock".into(),
-            anthropic_api_key: None,
-            openai_api_key: None,
-            elevenlabs_api_key: None,
-            host_voice_id: None,
-            expert_voice_id: None,
-            tts_provider: "mock".into(),
-            openai_tts_model: "gpt-4o-mini-tts".into(),
-            openai_tts_voice_host: "alloy".into(),
-            openai_tts_voice_expert: "onyx".into(),
-            blob_store: "mock".into(),
-            localfs_dir: "./data".into(),
-            s3_bucket: None,
-        };
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .connect(&cfg.database_url)
+        let db = crate::testutil::pool().await;
+        let token = "ak_test_token";
+        let uid = Uuid::new_v4();
+        sqlx::query("INSERT INTO users (id, email, token_hash) VALUES (?, ?, ?)")
+            .bind(uid)
+            .bind(format!("t-{}@e.com", Uuid::new_v4()))
+            .bind(hash_token(token))
+            .execute(&db)
             .await
             .unwrap();
-        let token = "ak_test_token";
-        let uid: Uuid = sqlx::query_scalar(
-            "INSERT INTO users (email, token_hash) VALUES ($1,$2)
-             ON CONFLICT (email) DO UPDATE SET token_hash=EXCLUDED.token_hash RETURNING id",
+        let pid = Uuid::new_v4();
+        sqlx::query("INSERT INTO projects (id, user_id, name) VALUES (?, ?, 'p')")
+            .bind(pid)
+            .bind(uid)
+            .execute(&db)
+            .await
+            .unwrap();
+        (
+            AppState::for_test(db, crate::testutil::cfg()),
+            token.to_string(),
+            pid,
         )
-        .bind(format!("t-{}@e.com", Uuid::new_v4()))
-        .bind(hash_token(token))
-        .fetch_one(&db)
-        .await
-        .unwrap();
-        let pid: Uuid =
-            sqlx::query_scalar("INSERT INTO projects (user_id, name) VALUES ($1,'p') RETURNING id")
-                .bind(uid)
-                .fetch_one(&db)
-                .await
-                .unwrap();
-        (AppState::for_test(db, cfg), token.to_string(), pid)
     }
 
     #[tokio::test]
@@ -204,13 +187,12 @@ mod tests {
         let id = Uuid::parse_str(&eid).unwrap();
         let mut status = String::new();
         for _ in 0..50 {
-            status = sqlx::query_scalar::<_, String>(
-                "SELECT status::text FROM podcast_episodes WHERE id=$1",
-            )
-            .bind(id)
-            .fetch_one(&db)
-            .await
-            .unwrap();
+            status =
+                sqlx::query_scalar::<_, String>("SELECT status FROM podcast_episodes WHERE id=?")
+                    .bind(id)
+                    .fetch_one(&db)
+                    .await
+                    .unwrap();
             if status == "ready" || status == "failed" {
                 break;
             }

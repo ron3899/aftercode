@@ -34,31 +34,7 @@ mod tests {
     use tower::ServiceExt;
 
     async fn test_state() -> AppState {
-        let cfg = crate::config::Config {
-            database_url: std::env::var("TEST_DATABASE_URL")
-                .unwrap_or_else(|_| std::env::var("DATABASE_URL").unwrap()),
-            bind_addr: "127.0.0.1:0".into(),
-            public_url: "http://t".into(),
-            llm_provider: "mock".into(),
-            anthropic_api_key: None,
-            openai_api_key: None,
-            elevenlabs_api_key: None,
-            host_voice_id: None,
-            expert_voice_id: None,
-            tts_provider: "mock".into(),
-            openai_tts_model: "gpt-4o-mini-tts".into(),
-            openai_tts_voice_host: "alloy".into(),
-            openai_tts_voice_expert: "onyx".into(),
-            blob_store: "mock".into(),
-            localfs_dir: "./data".into(),
-            s3_bucket: None,
-        };
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(2)
-            .connect(&cfg.database_url)
-            .await
-            .unwrap();
-        AppState::for_test(db, cfg)
+        AppState::for_test(crate::testutil::pool().await, crate::testutil::cfg())
     }
 
     #[tokio::test]

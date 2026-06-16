@@ -39,9 +39,10 @@ pub fn spawn(state: AppState, episode_id: Uuid, ctx: SessionContext) {
                 let topics = serde_json::to_value(&out.topics).unwrap_or_default();
                 let script = serde_json::to_value(&out.script).unwrap_or_default();
                 let _ = sqlx::query(
-                    "UPDATE podcast_episodes SET status='ready'::episode_status, title=$1,
-                     audio_url=$2, duration_seconds=$3, topics_json=$4, script_json=$5,
-                     transcript_text=$6, summary=$7, updated_at=now() WHERE id=$8",
+                    "UPDATE podcast_episodes SET status='ready', title=?,
+                     audio_url=?, duration_seconds=?, topics_json=?, script_json=?,
+                     transcript_text=?, summary=?,
+                     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
                 )
                 .bind(&out.script.title)
                 .bind(&out.audio_url)
@@ -56,8 +57,8 @@ pub fn spawn(state: AppState, episode_id: Uuid, ctx: SessionContext) {
             }
             Err(e) => {
                 let _ = sqlx::query(
-                    "UPDATE podcast_episodes SET status='failed'::episode_status, error=$1,
-                     updated_at=now() WHERE id=$2",
+                    "UPDATE podcast_episodes SET status='failed', error=?,
+                     updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
                 )
                 .bind(e.to_string())
                 .bind(episode_id)

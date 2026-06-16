@@ -7,6 +7,8 @@ mod providers;
 mod routes;
 mod state;
 mod storage;
+#[cfg(test)]
+mod testutil;
 mod worker;
 
 #[tokio::main]
@@ -23,11 +25,9 @@ async fn main() -> anyhow::Result<()> {
             .find(|a| !a.starts_with("--"))
             .cloned()
             .unwrap_or_else(|| "dev@example.com".into());
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .connect(&cfg.database_url)
-            .await?;
+        let db = db::connect(&cfg.database_url).await?;
         let existing: Option<uuid::Uuid> =
-            sqlx::query_scalar("SELECT id FROM users WHERE email = $1")
+            sqlx::query_scalar("SELECT id FROM users WHERE email = ?")
                 .bind(&email)
                 .fetch_optional(&db)
                 .await?;
@@ -43,9 +43,10 @@ async fn main() -> anyhow::Result<()> {
         let token = format!("ak_{}", uuid::Uuid::new_v4().simple());
         let hash = auth::hash_token(&token);
         sqlx::query(
-            "INSERT INTO users (email, token_hash) VALUES ($1,$2)
-             ON CONFLICT (email) DO UPDATE SET token_hash=EXCLUDED.token_hash",
+            "INSERT INTO users (id, email, token_hash) VALUES (?, ?, ?)
+             ON CONFLICT (email) DO UPDATE SET token_hash=excluded.token_hash",
         )
+        .bind(uuid::Uuid::new_v4())
         .bind(&email)
         .bind(&hash)
         .execute(&db)

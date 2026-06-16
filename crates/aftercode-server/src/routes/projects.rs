@@ -23,15 +23,15 @@ pub async fn create(
     Json(p): Json<NewProject>,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let lang = p.default_language.unwrap_or_else(|| "en".into());
-    let id = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO projects (user_id, name, default_language) VALUES ($1,$2,$3) RETURNING id",
-    )
-    .bind(uid)
-    .bind(&p.name)
-    .bind(&lang)
-    .fetch_one(&st.db)
-    .await
-    .map_err(|e| ServerError::Other(e.into()))?;
+    let id = Uuid::new_v4();
+    sqlx::query("INSERT INTO projects (id, user_id, name, default_language) VALUES (?, ?, ?, ?)")
+        .bind(id)
+        .bind(uid)
+        .bind(&p.name)
+        .bind(&lang)
+        .execute(&st.db)
+        .await
+        .map_err(|e| ServerError::Other(e.into()))?;
     Ok(Json(
         serde_json::json!({ "project_id": id, "project_name": p.name }),
     ))
@@ -50,7 +50,7 @@ pub async fn list(
     AuthUser(uid): AuthUser,
 ) -> Result<Json<serde_json::Value>, ServerError> {
     let rows = sqlx::query_as::<_, (Uuid, String, String)>(
-        "SELECT id, name, default_language FROM projects WHERE user_id=$1 ORDER BY created_at DESC",
+        "SELECT id, name, default_language FROM projects WHERE user_id=? ORDER BY created_at DESC",
     )
     .bind(uid)
     .fetch_all(&st.db)

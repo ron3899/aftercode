@@ -2,3 +2,5 @@
 /data
 .env
 *.mp3
+/aftercode.db
+/aftercode.db-*

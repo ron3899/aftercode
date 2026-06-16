@@ -9,7 +9,7 @@ One Cargo workspace, three crates:
 - **`aftercode-core`** — pure data types, no I/O. The wire contract between CLI and backend:
   `SessionContext`/`CodingEvent` (CLI → backend), `LearningTopic`/`EpisodeScript`/`Speaker`/
   `EpisodeStatus`/`EpisodeDetail`, and `PcmAudio` + gap constants. Defined once, shared.
-- **`aftercode-server`** — Axum + sqlx(Postgres) + Tokio. API + generation pipeline.
+- **`aftercode-server`** — Axum + sqlx(SQLite) + Tokio. API + generation pipeline.
 - **`aftercode-cli`** — clap. Collects sessions, applies privacy, drives the backend.
 
 ## Backend
@@ -60,7 +60,7 @@ validates per request. `aftercode-server seed-user <email>` mints a token for se
 ### Data model
 
 `users, projects, coding_sessions, coding_events, learning_topics, podcast_episodes`
-(`migrations/0001_init.sql`). Script/topics stored as JSONB; status is a Postgres enum.
+(`migrations/0001_init.sql`). Script/topics stored as JSON text; status is TEXT with a CHECK. SQLite (single file), schema auto-migrated on startup.
 
 ## CLI
 

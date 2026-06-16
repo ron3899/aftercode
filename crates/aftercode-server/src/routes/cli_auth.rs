@@ -82,9 +82,10 @@ pub async fn approve(
     let token = format!("ak_{}", Uuid::new_v4().simple());
     let hash = hash_token(&token);
     sqlx::query(
-        "INSERT INTO users (email, token_hash) VALUES ('cli@local', $1)
-         ON CONFLICT (email) DO UPDATE SET token_hash = EXCLUDED.token_hash",
+        "INSERT INTO users (id, email, token_hash) VALUES (?, 'cli@local', ?)
+         ON CONFLICT (email) DO UPDATE SET token_hash = excluded.token_hash",
     )
+    .bind(Uuid::new_v4())
     .bind(&hash)
     .execute(&st.db)
     .await
@@ -171,29 +172,7 @@ mod tests {
     }
 
     async fn test_state() -> AppState {
-        let cfg = crate::config::Config {
-            database_url: std::env::var("DATABASE_URL").unwrap(),
-            bind_addr: "127.0.0.1:0".into(),
-            public_url: "http://localhost:8090".into(),
-            llm_provider: "mock".into(),
-            anthropic_api_key: None,
-            openai_api_key: None,
-            elevenlabs_api_key: None,
-            host_voice_id: None,
-            expert_voice_id: None,
-            tts_provider: "mock".into(),
-            openai_tts_model: "m".into(),
-            openai_tts_voice_host: "alloy".into(),
-            openai_tts_voice_expert: "onyx".into(),
-            blob_store: "mock".into(),
-            localfs_dir: "./data".into(),
-            s3_bucket: None,
-        };
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .connect(&cfg.database_url)
-            .await
-            .unwrap();
-        AppState::for_test(db, cfg)
+        AppState::for_test(crate::testutil::pool().await, crate::testutil::cfg())
     }
 
     #[tokio::test]

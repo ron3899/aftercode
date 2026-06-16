@@ -33,29 +33,25 @@ crates/aftercode-core    shared types (session context, episode, audio)
 crates/aftercode-server  Axum API backend + generation pipeline + serves the web UI
 crates/aftercode-cli     the `aftercode` CLI
 web/                     React + Vite web UI (playlist, filters, player)
-migrations/              Postgres schema
+migrations/              SQLite schema (auto-applied on startup)
 docs/                    PRD, self-hosting, architecture, design specs
 ```
 
 ## Quickstart (self-host)
 
-Requires Rust (stable) and Postgres. Building the web UI also needs Node.
+Requires Rust (stable). Building the web UI also needs Node. **No database server** —
+storage is a local SQLite file (`aftercode.db`), created and migrated automatically.
 
 ```bash
-# 1. Database
-createdb aftercode   # or Docker: docker run -d -e POSTGRES_USER=aftercode \
-                     #   -e POSTGRES_PASSWORD=aftercode -e POSTGRES_DB=aftercode -p 5432:5432 postgres:16
-psql "$DATABASE_URL" -f migrations/0001_init.sql
-
-# 2. (optional) Build the web UI — the backend serves it at /
+# 1. (optional) Build the web UI — the backend serves it at /
 cd web && npm install && npm run build && cd ..
 
-# 3. Backend
+# 2. Backend
 cp .env.example .env   # add API keys (or set LLM_PROVIDER=mock, TTS_PROVIDER=mock to try without keys)
-cargo run -p aftercode-server seed-user you@example.com   # prints a token: ak_...
+cargo run -p aftercode-server seed-user you@example.com   # creates the DB + prints a token: ak_...
 cargo run -p aftercode-server                             # serves API + web UI on :8080
 
-# 4. CLI
+# 3. CLI
 cargo install --path crates/aftercode-cli   # installs `aftercode`
 aftercode login                  # opens the browser, click Approve — done
 cd your-project && aftercode init           # set Backend URL to your server
@@ -107,7 +103,7 @@ but detection can miss (e.g. a run from a subfolder). Two safeguards:
 
 All secrets/config via env (see `.env.example` and `docs/SELF_HOSTING.md`):
 
-- `DATABASE_URL`
+- `DATABASE_URL` — SQLite, default `sqlite://aftercode.db?mode=rwc` (auto-created + migrated)
 - `LLM_PROVIDER` — `anthropic` (default, `claude-opus-4-8`) / `openai` / `mock`; `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`
 - `TTS_PROVIDER` — `elevenlabs` (default) / `openai` / `mock`
   - ElevenLabs: `ELEVENLABS_API_KEY`, `ELEVENLABS_HOST_VOICE_ID`, `ELEVENLABS_EXPERT_VOICE_ID`

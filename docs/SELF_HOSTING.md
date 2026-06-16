@@ -5,19 +5,13 @@ Aftercode is a Rust workspace: an API backend (`aftercode-server`) and a CLI (`a
 ## Prerequisites
 
 - Rust (stable) — https://rustup.rs
-- PostgreSQL 14+
+- Node (only to build the web UI)
 
 ## 1. Database
 
-```bash
-# Docker
-docker run -d --name aftercode-pg \
-  -e POSTGRES_USER=aftercode -e POSTGRES_PASSWORD=aftercode -e POSTGRES_DB=aftercode \
-  -p 5432:5432 postgres:16
-
-export DATABASE_URL=postgres://aftercode:aftercode@localhost:5432/aftercode
-psql "$DATABASE_URL" -f migrations/0001_init.sql
-```
+None to set up. Storage is a local **SQLite** file (`aftercode.db`), created and migrated
+automatically the first time the server runs. To put it elsewhere, set `DATABASE_URL`
+(e.g. `sqlite:///var/lib/aftercode/aftercode.db?mode=rwc`).
 
 ## 2. Environment
 
@@ -25,7 +19,7 @@ Copy `.env.example` to `.env` and fill in:
 
 | Variable | Purpose |
 |---|---|
-| `DATABASE_URL` | Postgres connection string (required) |
+| `DATABASE_URL` | SQLite URL, default `sqlite://aftercode.db?mode=rwc` (auto-created) |
 | `BIND_ADDR` | Listen address, default `0.0.0.0:8080` |
 | `APP_PUBLIC_URL` | Public base URL used in audio/episode links |
 | `LLM_PROVIDER` | `anthropic` (default), `openai`, or `mock` |
@@ -74,6 +68,6 @@ errors can be appended to `.aftercode/errors.log` (one per line).
 
 ## Notes
 
-- Episode generation runs in-process (Tokio task) and updates a status machine in Postgres;
+- Episode generation runs in-process (Tokio task) and updates a status machine in SQLite;
   the CLI polls `GET /cli/episode-status/:id`. Redis is a future scale path, not required.
 - Audio is assembled in pure Rust (per-segment PCM → silence gaps → MP3), no `ffmpeg` needed.

@@ -16,10 +16,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn new(cfg: Config) -> anyhow::Result<Self> {
-        let db = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(10)
-            .connect(&cfg.database_url)
-            .await?;
+        let db = crate::db::connect(&cfg.database_url).await?;
         let llm: Arc<dyn LlmProvider> = match cfg.llm_provider.as_str() {
             "mock" => Arc::new(MockLlm),
             "openai" => Arc::new(crate::providers::openai::OpenAiProvider::from_cfg(&cfg)?),

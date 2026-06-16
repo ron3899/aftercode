@@ -20,7 +20,7 @@ anyhow.workspace = true
 axum = "0.7"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["trace", "cors", "fs"] }
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "postgres", "json", "uuid", "chrono", "macros"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "json", "uuid", "chrono", "macros", "migrate"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"

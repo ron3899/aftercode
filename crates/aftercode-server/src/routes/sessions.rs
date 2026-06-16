@@ -14,14 +14,16 @@ pub async fn upload(
     let project = Uuid::parse_str(&ctx.project_id)
         .map_err(|_| ServerError::BadRequest("project_id must be a uuid".into()))?;
     let ctx_json = serde_json::to_value(&ctx).map_err(|e| ServerError::Other(e.into()))?;
-    let id = sqlx::query_scalar::<_, Uuid>(
-        "INSERT INTO coding_sessions (project_id, user_id, source, context_json)
-         VALUES ($1,$2,'cli',$3) RETURNING id",
+    let id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO coding_sessions (id, project_id, user_id, source, context_json)
+         VALUES (?, ?, ?, 'cli', ?)",
     )
+    .bind(id)
     .bind(project)
     .bind(uid)
     .bind(ctx_json)
-    .fetch_one(&st.db)
+    .execute(&st.db)
     .await
     .map_err(|e| ServerError::Other(e.into()))?;
     Ok(Json(serde_json::json!({ "session_id": id })))

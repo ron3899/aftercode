@@ -20,11 +20,9 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
-        fn req(k: &str) -> anyhow::Result<String> {
-            std::env::var(k).map_err(|_| anyhow::anyhow!("missing env {k}"))
-        }
         Ok(Config {
-            database_url: req("DATABASE_URL")?,
+            database_url: std::env::var("DATABASE_URL")
+                .unwrap_or_else(|_| "sqlite://aftercode.db?mode=rwc".into()),
             bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
             public_url: std::env::var("APP_PUBLIC_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".into()),
@@ -53,13 +51,13 @@ mod tests {
     use super::*;
     #[test]
     #[serial_test::serial(env)]
-    fn from_env_requires_database_url() {
+    fn database_url_defaults_to_sqlite() {
         let saved = std::env::var("DATABASE_URL").ok();
         std::env::remove_var("DATABASE_URL");
-        let result = Config::from_env();
+        let cfg = Config::from_env().unwrap();
         if let Some(v) = saved {
             std::env::set_var("DATABASE_URL", v);
         }
-        assert!(result.is_err());
+        assert!(cfg.database_url.starts_with("sqlite:"));
     }
 }
