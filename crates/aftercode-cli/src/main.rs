@@ -23,7 +23,23 @@ struct Cli {
 #[derive(Subcommand)]
 enum Cmd {
     /// Initialize Aftercode in the current project
-    Init,
+    Init {
+        /// Skip prompts; accept defaults (or the flags below). For scripts/agents.
+        #[arg(long, short = 'y')]
+        yes: bool,
+        /// Project name (default: current directory name)
+        #[arg(long)]
+        name: Option<String>,
+        /// Language: he or en
+        #[arg(long)]
+        language: Option<String>,
+        /// Episode length in minutes (5/10/15)
+        #[arg(long)]
+        length: Option<u8>,
+        /// Backend URL (default: existing config or http://localhost:8080)
+        #[arg(long)]
+        backend: Option<String>,
+    },
     /// Log in. With no token, opens the browser to approve this CLI.
     Login {
         /// Optional token to save directly (skips the browser flow).
@@ -65,7 +81,13 @@ enum Cmd {
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
-        Cmd::Init => commands::init().await,
+        Cmd::Init {
+            yes,
+            name,
+            language,
+            length,
+            backend,
+        } => commands::init(yes, name, language, length, backend).await,
         Cmd::Login { token, backend } => commands::login(token, backend),
         Cmd::Status => commands::status().await,
         Cmd::Preview => commands::preview(),
