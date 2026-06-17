@@ -75,6 +75,29 @@ aftercode login
 Open **http://localhost:8080** to browse episodes, and run `aftercode episode` in any project.
 Step 1 works with **no API keys** (mock mode) so you can try it immediately.
 
+### Or: let your coding agent install it
+
+Paste this prompt into Cursor, Claude Code, Codex, or any agent with terminal access and it
+does the whole setup for you:
+
+```text
+Install Aftercode on my machine. Do this:
+1. Make sure Docker is installed and running. If it isn't, tell me how to install it
+   for my OS and stop.
+2. Start the backend:
+   docker run -d --name aftercode -p 8080:8080 -v aftercode:/data ghcr.io/ron3899/aftercode
+3. Install the `aftercode` CLI, picking the command for my OS:
+   - macOS/Linux with Homebrew:  brew install ron3899/aftercode/aftercode
+   - macOS/Linux without brew:   curl -fsSL https://raw.githubusercontent.com/ron3899/aftercode/main/install.sh | sh
+   - Windows (PowerShell):       irm https://raw.githubusercontent.com/ron3899/aftercode/main/install.ps1 | iex
+4. Run `aftercode login` (it opens my browser to approve) and wait for me to approve.
+5. Run `aftercode status` to confirm it's connected.
+6. Then, in my current project directory, run `aftercode episode --language en` to turn
+   what we just built into a podcast episode.
+Detect my OS, run the right commands one at a time, show me each command's output, and
+stop and ask me if any step fails.
+```
+
 **For real episodes**, pass your keys to the container:
 
 ```bash
