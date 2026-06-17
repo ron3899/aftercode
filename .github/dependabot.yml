@@ -1,16 +1,35 @@
 version: 2
+# Group minor + patch bumps into one PR per ecosystem so updates don't flood the
+# PR list. Major bumps still come as individual PRs — they can break the build and
+# deserve their own review, and keeping them separate means one breaking major
+# can't block the safe grouped batch from merging.
 updates:
   - package-ecosystem: cargo
     directory: "/"
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      cargo-minor:
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: npm
     directory: "/web"
     schedule: { interval: weekly }
     open-pull-requests-limit: 5
+    groups:
+      npm-minor:
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule: { interval: weekly }
+    groups:
+      actions-minor:
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: docker
     directory: "/"
     schedule: { interval: weekly }
+    groups:
+      docker-minor:
+        update-types: ["minor", "patch"]
