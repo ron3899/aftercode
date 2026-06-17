@@ -24,6 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=server /app/target/release/aftercode-server /usr/local/bin/aftercode-server
 COPY --from=web /web/dist /app/web/dist
+# Run as a non-root user; own the data dir so SQLite + audio are writable.
+RUN useradd --system --uid 10001 --create-home app \
+    && mkdir -p /data && chown -R app:app /data /app
 ENV WEB_DIST=/app/web/dist \
     BIND_ADDR=0.0.0.0:8080 \
     DATABASE_URL=sqlite:///data/aftercode.db?mode=rwc \
@@ -32,4 +35,5 @@ ENV WEB_DIST=/app/web/dist \
     APP_PUBLIC_URL=http://localhost:8080
 EXPOSE 8080
 VOLUME ["/data"]
+USER app
 CMD ["aftercode-server"]

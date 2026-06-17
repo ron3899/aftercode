@@ -20,7 +20,14 @@ impl IntoResponse for ServerError {
             ServerError::Unauthorized => (StatusCode::UNAUTHORIZED, self.to_string()),
             ServerError::NotFound => (StatusCode::NOT_FOUND, self.to_string()),
             ServerError::BadRequest(_) => (StatusCode::BAD_REQUEST, self.to_string()),
-            ServerError::Other(e) => (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()),
+            // Don't leak internal error details (SQL, etc.) to clients; log them instead.
+            ServerError::Other(e) => {
+                tracing::error!("internal error: {e:#}");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "internal server error".to_string(),
+                )
+            }
         };
         (code, Json(serde_json::json!({ "error": msg }))).into_response()
     }

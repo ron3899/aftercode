@@ -6,10 +6,27 @@ pub mod projects;
 pub mod sessions;
 
 use crate::state::AppState;
+use axum::http::{header, HeaderValue, Method};
 use axum::routing::{get, post};
 use axum::Router;
 use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
+
+/// CORS limited to the app's own origin + the local Vite dev server. The SPA is
+/// served same-origin in prod (so it needs no CORS); only `vite dev` is cross-origin.
+fn cors_layer(public_url: &str) -> CorsLayer {
+    let mut origins: Vec<HeaderValue> = ["http://localhost:5173", "http://127.0.0.1:5173"]
+        .iter()
+        .filter_map(|o| HeaderValue::from_str(o).ok())
+        .collect();
+    if let Ok(v) = HeaderValue::from_str(public_url.trim_end_matches('/')) {
+        origins.push(v);
+    }
+    CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST])
+        .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
+}
 
 pub fn router(state: AppState) -> Router {
     let static_dir = state.cfg.localfs_dir.clone();
@@ -41,7 +58,8 @@ pub fn router(state: AppState) -> Router {
         api.route("/", get(health::landing))
     };
 
-    app.layer(CorsLayer::very_permissive())
+    let cors = cors_layer(&state.cfg.public_url);
+    app.layer(cors)
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state)
 }

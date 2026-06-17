@@ -23,7 +23,9 @@ impl Config {
         Ok(Config {
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "sqlite://aftercode.db?mode=rwc".into()),
-            bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
+            // Loopback by default: never exposed beyond this machine unless you
+            // opt in (Docker sets 0.0.0.0 inside its own network boundary).
+            bind_addr: std::env::var("BIND_ADDR").unwrap_or_else(|_| "127.0.0.1:8080".into()),
             public_url: std::env::var("APP_PUBLIC_URL")
                 .unwrap_or_else(|_| "http://localhost:8080".into()),
             llm_provider: std::env::var("LLM_PROVIDER").unwrap_or_else(|_| "anthropic".into()),
