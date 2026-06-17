@@ -16,7 +16,13 @@ fn prompt(q: &str, default: &str) -> String {
     }
 }
 
-pub async fn init() -> anyhow::Result<()> {
+pub async fn init(
+    yes: bool,
+    name_arg: Option<String>,
+    language_arg: Option<String>,
+    length_arg: Option<u8>,
+    backend_arg: Option<String>,
+) -> anyhow::Result<()> {
     // Re-running init must NOT silently reset a working config (backend URL,
     // project id). Load any existing config and use its values as the defaults.
     let existing = Config::load().ok();
@@ -42,12 +48,38 @@ pub async fn init() -> anyhow::Result<()> {
         .map(|c| c.api_base_url.clone())
         .unwrap_or_else(|| "http://localhost:8080".into());
 
-    let name = prompt("Project name", &default_name);
-    let language = prompt("Language (he/en)", &default_lang);
-    let length: u8 = prompt("Episode length (5/10/15)", &default_len.to_string())
-        .parse()
-        .unwrap_or(default_len);
-    let api = prompt("Backend URL", &default_api);
+    // With a flag set, use it. With --yes (and no flag), take the default
+    // silently. Otherwise prompt interactively.
+    let name = name_arg.unwrap_or_else(|| {
+        if yes {
+            default_name
+        } else {
+            prompt("Project name", &default_name)
+        }
+    });
+    let language = language_arg.unwrap_or_else(|| {
+        if yes {
+            default_lang
+        } else {
+            prompt("Language (he/en)", &default_lang)
+        }
+    });
+    let length: u8 = length_arg.unwrap_or_else(|| {
+        if yes {
+            default_len
+        } else {
+            prompt("Episode length (5/10/15)", &default_len.to_string())
+                .parse()
+                .unwrap_or(default_len)
+        }
+    });
+    let api = backend_arg.unwrap_or_else(|| {
+        if yes {
+            default_api
+        } else {
+            prompt("Backend URL", &default_api)
+        }
+    });
 
     let token = credentials::load_token().ok();
     let prior_project = existing

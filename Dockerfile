@@ -32,7 +32,12 @@ ENV WEB_DIST=/app/web/dist \
     DATABASE_URL=sqlite:///data/aftercode.db?mode=rwc \
     BLOB_STORE=localfs \
     LOCALFS_DIR=/data/audio \
-    APP_PUBLIC_URL=http://localhost:8080
+    APP_PUBLIC_URL=http://localhost:8080 \
+    # Mock providers by default so `docker run` with no API keys boots straight
+    # into a working demo. Override with -e LLM_PROVIDER=... / TTS_PROVIDER=...
+    # plus the matching API key for real episodes.
+    LLM_PROVIDER=mock \
+    TTS_PROVIDER=mock
 EXPOSE 8080
 VOLUME ["/data"]
 USER app

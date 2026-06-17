@@ -72,7 +72,13 @@ docker run -d --name aftercode -p 8080:8080 -v aftercode:/data ghcr.io/ron3899/a
 aftercode login
 ```
 
-Open **http://localhost:8080** to browse episodes, and run `aftercode episode` in any project.
+Open **http://localhost:8080** to browse episodes. Then, in any project:
+
+```bash
+aftercode init -y      # one-time per project (creates .aftercode/config.json)
+aftercode episode      # turn your latest coding session into an episode
+```
+
 Step 1 works with **no API keys** (mock mode) so you can try it immediately.
 
 ### Or: let your coding agent install it
@@ -92,8 +98,9 @@ Install Aftercode on my machine. Do this:
    - Windows (PowerShell):       irm https://raw.githubusercontent.com/ron3899/aftercode/main/install.ps1 | iex
 4. Run `aftercode login` (it opens my browser to approve) and wait for me to approve.
 5. Run `aftercode status` to confirm it's connected.
-6. Then, in my current project directory, run `aftercode episode --language en` to turn
-   what we just built into a podcast episode.
+6. In my current project directory, run `aftercode init -y` (one-time setup).
+7. Then run `aftercode episode --language en` to turn what we just built into a
+   podcast episode.
 Detect my OS, run the right commands one at a time, show me each command's output, and
 stop and ask me if any step fails.
 ```
