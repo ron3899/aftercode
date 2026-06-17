@@ -1,6 +1,7 @@
 name: release
-# Publishes the backend container image to GHCR on every version tag, so users
-# run `docker run ghcr.io/ron3899/aftercode` with no clone and no local build.
+# On every version tag: publish the backend container image to GHCR, and build
+# prebuilt CLI binaries for macOS / Linux / Windows attached to a GitHub Release.
+# Result: users install with no clone and no toolchain on every platform.
 on:
   push:
     tags: ["v*.*.*"]
@@ -14,16 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Image metadata (tags + labels)
         id: meta
         uses: docker/metadata-action@v5
@@ -33,7 +31,6 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
-
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -47,3 +44,51 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  binaries:
+    name: cli (${{ matrix.target }})
+    permissions:
+      contents: write # create the Release + upload assets
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-14
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      # Native build per runner — git2 (vendored libgit2) and rusqlite (bundled)
+      # need a C toolchain, which each OS runner already ships.
+      - run: cargo build --release --locked -p aftercode-cli --target ${{ matrix.target }}
+
+      - name: Package (unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          dir="target/${{ matrix.target }}/release"
+          tar -C "$dir" -czf "aftercode-${{ matrix.target }}.tar.gz" aftercode
+
+      - name: Package (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "target/${{ matrix.target }}/release/aftercode.exe" `
+            -DestinationPath "aftercode-${{ matrix.target }}.zip"
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            aftercode-${{ matrix.target }}.tar.gz
+            aftercode-${{ matrix.target }}.zip
+          fail_on_unmatched_files: false

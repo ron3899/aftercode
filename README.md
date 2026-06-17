@@ -49,22 +49,31 @@ docs/                    PRD, self-hosting, architecture, design specs
 
 ## Install
 
-No clone, no compile. Backend runs as a published Docker image; the CLI installs from a
-Homebrew tap. You need [Docker](https://docs.docker.com/get-docker/) and
-[Homebrew](https://brew.sh) (macOS/Linux).
+No clone, no compile, any OS. The backend runs as a published Docker image; the CLI is a
+prebuilt binary. You only need [Docker](https://docs.docker.com/get-docker/).
+
+**Step 1 — start the backend + web UI** (same on every platform):
 
 ```bash
-# 1. Start the backend + web UI  →  http://localhost:8080  (no API keys = mock mode)
 docker run -d --name aftercode -p 8080:8080 -v aftercode:/data ghcr.io/ron3899/aftercode
+```
 
-# 2. Install the CLI
-brew install ron3899/aftercode/aftercode
+**Step 2 — install the CLI** (pick your platform):
 
-# 3. Log in (opens your browser → click Approve)
+| Platform | Command |
+|----------|---------|
+| **macOS / Linux** (Homebrew) | `brew install ron3899/aftercode/aftercode` |
+| **macOS / Linux** (no brew) | `curl -fsSL https://raw.githubusercontent.com/ron3899/aftercode/main/install.sh \| sh` |
+| **Windows** (PowerShell) | `irm https://raw.githubusercontent.com/ron3899/aftercode/main/install.ps1 \| iex` |
+
+**Step 3 — log in** (opens your browser → click Approve):
+
+```bash
 aftercode login
 ```
 
 Open **http://localhost:8080** to browse episodes, and run `aftercode episode` in any project.
+Step 1 works with **no API keys** (mock mode) so you can try it immediately.
 
 **For real episodes**, pass your keys to the container:
 
@@ -92,6 +101,12 @@ aftercode login
 ```
 
 For real episodes, put your keys in a `.env` (see `.env.example`) and `docker compose up -d` again.
+
+Prefer Rust on any OS (incl. Windows)? Install the CLI straight from git:
+
+```bash
+cargo install --git https://github.com/ron3899/aftercode aftercode-cli
+```
 </details>
 
 ## Use it inside your coding agent
