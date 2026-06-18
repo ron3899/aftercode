@@ -105,16 +105,28 @@ Detect my OS, run the right commands one at a time, show me each command's outpu
 stop and ask me if any step fails.
 ```
 
-**For real episodes**, pass your keys to the container:
+**For real episodes**, add your API keys in the web UI — no `.env`, no restart:
+
+1. Open **http://localhost:8080** → **settings**.
+2. Pick a **script writer** (Anthropic or OpenAI) and a **voice** provider (OpenAI or
+   ElevenLabs), paste the API key(s) — each field links to where to get the key.
+3. **Test keys** to verify, then **Save**. Next `aftercode episode` uses them.
+
+Keys are stored on your backend (SQLite), masked on read, and never shown again. Leave a
+side on *mock* to skip it.
+
+<details>
+<summary>Prefer env vars (CI / headless)? You still can.</summary>
 
 ```bash
-docker rm -f aftercode
 docker run -d --name aftercode -p 8080:8080 -v aftercode:/data \
   -e LLM_PROVIDER=openai -e OPENAI_API_KEY=sk-... \
   -e TTS_PROVIDER=openai \
   ghcr.io/ron3899/aftercode
-# TTS_PROVIDER=openai uses OpenAI tts-1; or set TTS_PROVIDER=elevenlabs + its keys.
 ```
+
+UI settings override env when both are set.
+</details>
 
 > Port 8080 taken? Map another: `-p 9000:8080` and use 9000 everywhere.
 

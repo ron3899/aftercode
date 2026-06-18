@@ -18,17 +18,24 @@ pub fn spawn(state: AppState, episode_id: Uuid, ctx: SessionContext) {
             }
         });
 
-        let result = run_pipeline(
-            &ctx,
-            &episode_id.to_string(),
-            state.llm.clone(),
-            state.tts.clone(),
-            state.blob.clone(),
-            |s| {
-                let _ = tx.send(s.to_string());
-            },
-        )
-        .await;
+        // Resolve providers from the UI-configured settings (falls back to the
+        // startup providers). A bad/missing key surfaces as a failed episode.
+        let result = match state.resolve_providers().await {
+            Ok((llm, tts)) => {
+                run_pipeline(
+                    &ctx,
+                    &episode_id.to_string(),
+                    llm,
+                    tts,
+                    state.blob.clone(),
+                    |s| {
+                        let _ = tx.send(s.to_string());
+                    },
+                )
+                .await
+            }
+            Err(e) => Err(e),
+        };
 
         // Closing the sender ends the drain task once all progress writes complete.
         drop(tx);

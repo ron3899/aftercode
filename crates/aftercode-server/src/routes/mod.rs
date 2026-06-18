@@ -4,6 +4,7 @@ pub mod episodes;
 pub mod health;
 pub mod projects;
 pub mod sessions;
+pub mod settings;
 
 use crate::state::AppState;
 use axum::http::{header, HeaderValue, Method};
@@ -24,7 +25,7 @@ fn cors_layer(public_url: &str) -> CorsLayer {
     }
     CorsLayer::new()
         .allow_origin(origins)
-        .allow_methods([Method::GET, Method::POST])
+        .allow_methods([Method::GET, Method::POST, Method::PUT])
         .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE])
 }
 
@@ -48,6 +49,8 @@ pub fn router(state: AppState) -> Router {
         .route("/episodes", get(episodes::list))
         .route("/episodes/:id", get(episodes::detail))
         .route("/episodes/:id/retry", post(episodes::retry))
+        .route("/settings", get(settings::get).put(settings::put))
+        .route("/settings/verify", post(settings::verify))
         .nest_service("/static", ServeDir::new(static_dir));
 
     let app = if spa_built {
