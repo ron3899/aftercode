@@ -97,8 +97,8 @@ Install Aftercode on my machine. Do this:
    - macOS/Linux without brew:   curl -fsSL https://raw.githubusercontent.com/ron3899/aftercode/main/install.sh | sh
    - Windows (PowerShell):       irm https://raw.githubusercontent.com/ron3899/aftercode/main/install.ps1 | iex
 4. Run `aftercode login` (it opens my browser to approve) and wait for me to approve.
-5. Run `aftercode status` to confirm it's connected.
-6. In my current project directory, run `aftercode init -y` (one-time setup).
+5. In my current project directory (a git repo), run `aftercode init -y` (one-time setup).
+6. Run `aftercode status` to confirm it's connected.
 7. Then run `aftercode episode --language en` to turn what we just built into a
    podcast episode.
 Detect my OS, run the right commands one at a time, show me each command's output, and

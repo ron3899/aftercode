@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aftercode-cli"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "aftercode-core",
  "anyhow",
@@ -27,7 +27,7 @@ dependencies = [
 
 [[package]]
 name = "aftercode-core"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "serde",
  "serde_json",
@@ -36,7 +36,7 @@ dependencies = [
 
 [[package]]
 name = "aftercode-server"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "aftercode-core",
  "anyhow",
