@@ -134,29 +134,39 @@ pub fn login(token: Option<String>, backend: Option<String>) -> anyhow::Result<(
 }
 
 pub async fn status() -> anyhow::Result<()> {
-    let cfg = Config::load()?;
+    // Don't hard-fail without a project config — `status` should still report
+    // login state (e.g. right after `aftercode login`, before `init`).
+    let cfg = Config::load().ok();
     let git_ok = git2::Repository::open(".").is_ok();
     let hooks_ok = std::path::Path::new(".aftercode/events").exists();
 
+    // Backend from project config, else the default.
+    let backend = cfg
+        .as_ref()
+        .map(|c| c.api_base_url.clone())
+        .unwrap_or_else(|| "http://localhost:8080".into());
+
     // Validate the token against the backend — a local token may be stale/invalid.
     let auth = match credentials::load_token() {
-        Err(_) => "no — run `aftercode login <token>`".to_string(),
+        Err(_) => "no — run `aftercode login`".to_string(),
         Ok(tok) => {
-            if Client::new(cfg.api_base_url.clone(), tok)
-                .token_valid()
-                .await
-            {
+            if Client::new(backend.clone(), tok).token_valid().await {
                 "yes (token valid)".to_string()
             } else {
-                "token present but INVALID/expired — run `aftercode login <token>`".to_string()
+                "token present but INVALID/expired — run `aftercode login`".to_string()
             }
         }
     };
 
     println!("Aftercode status\n");
-    println!("Project:   {}", cfg.project_name);
-    println!("Language:  {}", cfg.language);
-    println!("Backend:   {}", cfg.api_base_url);
+    match &cfg {
+        Some(c) => {
+            println!("Project:   {}", c.project_name);
+            println!("Language:  {}", c.language);
+        }
+        None => println!("Project:   none here — run `aftercode init` in your project"),
+    }
+    println!("Backend:   {backend}");
     println!("Logged in: {auth}");
     println!(
         "Git:       {}",

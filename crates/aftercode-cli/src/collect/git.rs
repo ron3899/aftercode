@@ -1,6 +1,7 @@
 use git2::{DiffFormat, Repository};
 use std::collections::BTreeMap;
 
+#[derive(Default)]
 pub struct GitData {
     pub changed_files: Vec<String>,
     pub diff_summary: Option<String>,
@@ -12,7 +13,14 @@ pub struct GitData {
 /// Collect changed files (working dir vs HEAD), a short diff summary, and
 /// commit messages within the last `since_days` days.
 pub fn collect(repo_path: &str, since_days: i64) -> anyhow::Result<GitData> {
-    let repo = Repository::open(repo_path)?;
+    let repo = match Repository::open(repo_path) {
+        Ok(r) => r,
+        // Not a git repo: don't hard-fail — proceed with no diff so the episode
+        // can still be built from the agent session alone. Other git errors are
+        // real and propagate.
+        Err(e) if e.code() == git2::ErrorCode::NotFound => return Ok(GitData::default()),
+        Err(e) => return Err(e.into()),
+    };
 
     // Changed files: diff HEAD tree vs workdir.
     let mut changed = Vec::new();
@@ -102,6 +110,17 @@ mod tests {
             .unwrap()
             .success();
         assert!(ok, "git {:?} failed", args);
+    }
+
+    #[test]
+    fn non_git_dir_returns_empty_not_error() {
+        // A directory that isn't a git repo must degrade to empty data so the
+        // episode can still be built from the agent session alone.
+        let dir = tempfile::tempdir().unwrap();
+        let data = collect(dir.path().to_str().unwrap(), 1).expect("should not error");
+        assert!(data.changed_files.is_empty());
+        assert!(data.diff_hunks.is_empty());
+        assert!(data.commit_messages.is_empty());
     }
 
     #[test]
