@@ -3,6 +3,11 @@ target
 web/dist
 data
 .env
+# Any nested env file (e.g. web/.env, web/.env.development) must not enter the
+# image build context — it would bake a dev API base into the production SPA.
+**/.env
+**/.env.*
+!**/.env.example
 *.db
 *.db-*
 .git

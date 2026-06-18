@@ -1,4 +1,8 @@
 node_modules
 dist
 *.local
+# Ignore all env files (incl. .env.development) so a dev API base never gets
+# committed or baked into a build. Keep the example.
 .env
+.env.*
+!.env.example
