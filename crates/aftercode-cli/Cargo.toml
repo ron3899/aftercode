@@ -19,7 +19,7 @@ clap = { version = "4", features = ["derive"] }
 git2 = { version = "0.19", default-features = false }
 ignore = "0.4"
 regex = "1"
-dirs = "5"
+dirs = "6"
 indicatif = "0.18"
 chrono = { version = "0.4", features = ["clock"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
