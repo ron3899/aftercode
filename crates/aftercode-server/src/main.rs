@@ -5,6 +5,7 @@ mod error;
 mod pipeline;
 mod providers;
 mod routes;
+mod settings;
 mod state;
 mod storage;
 #[cfg(test)]

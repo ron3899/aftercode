@@ -1,5 +1,11 @@
 import { clearToken, getToken } from "./auth";
-import type { EpisodeDetail, EpisodeSummary } from "./types";
+import type {
+  EpisodeDetail,
+  EpisodeSummary,
+  SettingsPatch,
+  SettingsView,
+  VerifyResult,
+} from "./types";
 
 // Dev: VITE_API_BASE points at the backend. Prod: same origin (served by backend).
 export const API_BASE: string =
@@ -18,6 +24,36 @@ async function get<T>(path: string): Promise<T> {
   }
   if (!res.ok) throw new Error(`request failed: ${res.status}`);
   return (await res.json()) as T;
+}
+
+async function send<T>(path: string, method: string, body?: unknown): Promise<T> {
+  const token = getToken();
+  const res = await fetch(`${API_BASE}${path}`, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(body !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  if (res.status === 401) {
+    clearToken();
+    throw new AuthError("unauthorized");
+  }
+  if (!res.ok) throw new Error(`request failed: ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export function fetchSettings(): Promise<SettingsView> {
+  return get<SettingsView>("/settings");
+}
+
+export function saveSettings(patch: SettingsPatch): Promise<SettingsView> {
+  return send<SettingsView>("/settings", "PUT", patch);
+}
+
+export function verifySettings(): Promise<VerifyResult> {
+  return send<VerifyResult>("/settings/verify", "POST", {});
 }
 
 export async function fetchEpisodes(): Promise<EpisodeSummary[]> {
