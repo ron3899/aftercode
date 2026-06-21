@@ -29,6 +29,7 @@ pub fn build_llm(cfg: &Config) -> anyhow::Result<Arc<dyn LlmProvider>> {
 pub fn build_tts(cfg: &Config) -> anyhow::Result<Arc<dyn TtsProvider>> {
     Ok(match cfg.tts_provider.as_str() {
         "openai" => Arc::new(crate::providers::tts::openai_tts_from_cfg(cfg)?),
+        "local" => Arc::new(crate::providers::tts::local_tts_from_cfg(cfg)?),
         "mock" => Arc::new(MockTts),
         "elevenlabs" => Arc::new(crate::providers::tts::eleven_from_cfg(cfg)?),
         // Back-compat: fall back to ElevenLabs if its key is present, else mock.
