@@ -29,6 +29,7 @@ pub fn cfg() -> Config {
         local_tts_command: None,
         local_tts_args: None,
         local_tts_sample_rate: 24_000,
+        local_tts_timeout_secs: 300,
         local_tts_host_reference: None,
         local_tts_expert_reference: None,
         local_tts_host_reference_text: None,

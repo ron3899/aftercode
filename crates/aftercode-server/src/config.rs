@@ -19,6 +19,7 @@ pub struct Config {
     pub local_tts_command: Option<String>,
     pub local_tts_args: Option<String>,
     pub local_tts_sample_rate: u32,
+    pub local_tts_timeout_secs: u64,
     pub local_tts_host_reference: Option<String>,
     pub local_tts_expert_reference: Option<String>,
     pub local_tts_host_reference_text: Option<String>,
@@ -57,6 +58,10 @@ impl Config {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(24_000),
+            local_tts_timeout_secs: std::env::var("LOCAL_TTS_TIMEOUT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(300),
             local_tts_host_reference: std::env::var("LOCAL_TTS_HOST_REFERENCE").ok(),
             local_tts_expert_reference: std::env::var("LOCAL_TTS_EXPERT_REFERENCE").ok(),
             local_tts_host_reference_text: std::env::var("LOCAL_TTS_HOST_REFERENCE_TEXT").ok(),

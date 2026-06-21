@@ -2,6 +2,7 @@ use crate::config::Config;
 use aftercode_core::audio::{PcmAudio, VoiceRole, OPENAI_SAMPLE_RATE, SAMPLE_RATE};
 use aftercode_core::session::Language;
 use async_trait::async_trait;
+use tokio::io::AsyncReadExt;
 
 #[async_trait]
 pub trait TtsProvider: Send + Sync {
@@ -176,10 +177,19 @@ pub struct LocalTts {
     command: String,
     args: Vec<String>,
     sample_rate: u32,
+    timeout_secs: u64,
     host_reference: Option<String>,
     expert_reference: Option<String>,
     host_reference_text: Option<String>,
     expert_reference_text: Option<String>,
+}
+
+struct TempFileGuard(std::path::PathBuf);
+
+impl Drop for TempFileGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
 }
 
 pub fn local_tts_from_cfg(cfg: &Config) -> anyhow::Result<LocalTts> {
@@ -195,11 +205,15 @@ pub fn local_tts_from_cfg(cfg: &Config) -> anyhow::Result<LocalTts> {
         .unwrap_or("")
         .split_whitespace()
         .map(|s| s.to_string())
-        .collect();
+        .collect::<Vec<_>>();
+    if !args.iter().any(|a| a.contains("{output}")) {
+        anyhow::bail!("LOCAL_TTS_ARGS must contain an arg with the {{output}} placeholder");
+    }
     Ok(LocalTts {
         command,
         args,
         sample_rate: cfg.local_tts_sample_rate,
+        timeout_secs: cfg.local_tts_timeout_secs,
         host_reference: cfg.local_tts_host_reference.clone(),
         expert_reference: cfg.local_tts_expert_reference.clone(),
         host_reference_text: cfg.local_tts_host_reference_text.clone(),
@@ -215,9 +229,21 @@ fn expand(arg: &str, subs: &[(&str, &str)]) -> String {
     out
 }
 
-/// Decode a mono 16-bit PCM WAV file into `PcmAudio`. Minimal RIFF/WAVE reader
-/// (PCM format 1, 16-bit) so we take no audio-decoding dependency.
-fn read_wav_i16_mono(path: &std::path::Path) -> anyhow::Result<Vec<i16>> {
+fn tail_chars(s: &str, n: usize) -> String {
+    let mut chars = s.chars().rev().take(n).collect::<Vec<_>>();
+    chars.reverse();
+    chars.into_iter().collect()
+}
+
+struct WavPcm {
+    samples: Vec<i16>,
+    sample_rate: u32,
+}
+
+/// Decode a mono 16-bit PCM WAV file into `WavPcm` (samples + the WAV's
+/// declared sample rate). Minimal RIFF/WAVE reader (PCM format 1, 16-bit) so we
+/// take no audio-decoding dependency.
+fn read_wav_i16_mono(path: &std::path::Path) -> anyhow::Result<WavPcm> {
     let bytes = std::fs::read(path)?;
     if bytes.len() < 12 || &bytes[0..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
         anyhow::bail!(
@@ -226,6 +252,7 @@ fn read_wav_i16_mono(path: &std::path::Path) -> anyhow::Result<Vec<i16>> {
         );
     }
     let mut pos = 12;
+    let mut sample_rate = None;
     while pos + 8 <= bytes.len() {
         let id = &bytes[pos..pos + 4];
         let size = u32::from_le_bytes([
@@ -236,11 +263,42 @@ fn read_wav_i16_mono(path: &std::path::Path) -> anyhow::Result<Vec<i16>> {
         ]) as usize;
         let body_start = pos + 8;
         let body_end = (body_start + size).min(bytes.len());
+        if id == b"fmt " {
+            if body_start + 16 > body_end {
+                anyhow::bail!("local TTS WAV has truncated `fmt ` chunk");
+            }
+            let audio_format = u16::from_le_bytes([bytes[body_start], bytes[body_start + 1]]);
+            let num_channels = u16::from_le_bytes([bytes[body_start + 2], bytes[body_start + 3]]);
+            let rate = u32::from_le_bytes([
+                bytes[body_start + 4],
+                bytes[body_start + 5],
+                bytes[body_start + 6],
+                bytes[body_start + 7],
+            ]);
+            let bits_per_sample =
+                u16::from_le_bytes([bytes[body_start + 14], bytes[body_start + 15]]);
+            if audio_format != 1 {
+                anyhow::bail!("local TTS WAV is not PCM (format {audio_format})");
+            }
+            if num_channels != 1 {
+                anyhow::bail!("local TTS WAV must be mono, got {num_channels} channels");
+            }
+            if bits_per_sample != 16 {
+                anyhow::bail!("local TTS WAV must be 16-bit, got {bits_per_sample}");
+            }
+            sample_rate = Some(rate);
+        }
         if id == b"data" {
-            return Ok(bytes[body_start..body_end]
+            let sample_rate =
+                sample_rate.ok_or_else(|| anyhow::anyhow!("no `fmt ` chunk in local TTS WAV"))?;
+            let samples = bytes[body_start..body_end]
                 .chunks_exact(2)
                 .map(|c| i16::from_le_bytes([c[0], c[1]]))
-                .collect());
+                .collect();
+            return Ok(WavPcm {
+                samples,
+                sample_rate,
+            });
         }
         // Chunks are word-aligned (pad byte if size is odd).
         pos = body_start + size + (size & 1);
@@ -276,6 +334,7 @@ impl TtsProvider for LocalTts {
             std::process::id(),
             uuid::Uuid::new_v4()
         ));
+        let _guard = TempFileGuard(out.clone());
         let out_str = out.to_string_lossy().to_string();
         let subs: &[(&str, &str)] = &[
             ("{text}", text),
@@ -286,25 +345,58 @@ impl TtsProvider for LocalTts {
         ];
         let args: Vec<String> = self.args.iter().map(|a| expand(a, subs)).collect();
 
-        let status = tokio::process::Command::new(&self.command)
+        let mut child = tokio::process::Command::new(&self.command)
             .args(&args)
-            .status()
-            .await?;
+            .stderr(std::process::Stdio::piped())
+            .spawn()?;
+        let mut stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("failed to capture local TTS stderr"))?;
+        let stderr_task = tokio::spawn(async move {
+            let mut bytes = Vec::new();
+            stderr.read_to_end(&mut bytes).await?;
+            Ok::<_, std::io::Error>(bytes)
+        });
+        let dur = std::time::Duration::from_secs(self.timeout_secs);
+        let status = match tokio::time::timeout(dur, child.wait()).await {
+            Ok(status) => status?,
+            Err(_) => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                anyhow::bail!(
+                    "local TTS command `{}` timed out after {}s",
+                    self.command,
+                    self.timeout_secs
+                );
+            }
+        };
+        let stderr = stderr_task.await??;
         if !status.success() {
-            let _ = std::fs::remove_file(&out);
+            let stderr = String::from_utf8_lossy(&stderr);
+            let stderr_tail = tail_chars(&stderr, 500);
             anyhow::bail!(
-                "local TTS command `{}` exited with {}",
+                "local TTS command `{}` exited with {}: {}",
                 self.command,
-                status
+                status,
+                stderr_tail
             );
         }
 
-        let samples = read_wav_i16_mono(&out)?;
-        let _ = std::fs::remove_file(&out);
-        if samples.is_empty() {
+        let wav = read_wav_i16_mono(&out)?;
+        if wav.sample_rate != self.sample_rate {
+            anyhow::bail!(
+                "local TTS WAV sample rate {} != configured LOCAL_TTS_SAMPLE_RATE {}",
+                wav.sample_rate,
+                self.sample_rate
+            );
+        }
+        if wav.samples.is_empty() {
             anyhow::bail!("local TTS produced empty audio for role {role}");
         }
-        Ok(PcmAudio { samples })
+        Ok(PcmAudio {
+            samples: wav.samples,
+        })
     }
 }
 
@@ -330,6 +422,17 @@ mod tests {
     }
 
     fn write_wav_i16_mono(path: &std::path::Path, sample_rate: u32, samples: &[i16]) {
+        write_wav_custom(path, 1, 1, sample_rate, 16, samples);
+    }
+
+    fn write_wav_custom(
+        path: &std::path::Path,
+        fmt_audio: u16,
+        channels: u16,
+        sample_rate: u32,
+        bits_per_sample: u16,
+        samples: &[i16],
+    ) {
         let data_len = (samples.len() * 2) as u32;
         let mut buf = Vec::new();
         buf.extend_from_slice(b"RIFF");
@@ -337,12 +440,13 @@ mod tests {
         buf.extend_from_slice(b"WAVE");
         buf.extend_from_slice(b"fmt ");
         buf.extend_from_slice(&16u32.to_le_bytes()); // PCM fmt chunk size
-        buf.extend_from_slice(&1u16.to_le_bytes()); // PCM
-        buf.extend_from_slice(&1u16.to_le_bytes()); // mono
+        buf.extend_from_slice(&fmt_audio.to_le_bytes());
+        buf.extend_from_slice(&channels.to_le_bytes());
         buf.extend_from_slice(&sample_rate.to_le_bytes());
-        buf.extend_from_slice(&(sample_rate * 2).to_le_bytes()); // byte rate
-        buf.extend_from_slice(&2u16.to_le_bytes()); // block align
-        buf.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        let block_align = channels * (bits_per_sample / 8);
+        buf.extend_from_slice(&(sample_rate * u32::from(block_align)).to_le_bytes());
+        buf.extend_from_slice(&block_align.to_le_bytes());
+        buf.extend_from_slice(&bits_per_sample.to_le_bytes());
         buf.extend_from_slice(b"data");
         buf.extend_from_slice(&data_len.to_le_bytes());
         for s in samples {
@@ -359,7 +463,8 @@ mod tests {
         write_wav_i16_mono(&p, 24000, &samples);
         let got = read_wav_i16_mono(&p).unwrap();
         std::fs::remove_file(&p).ok();
-        assert_eq!(got, samples);
+        assert_eq!(got.samples, samples);
+        assert_eq!(got.sample_rate, 24000);
     }
 
     #[tokio::test]
@@ -388,6 +493,7 @@ mod tests {
             // $1 = script path, $2 = output (helper copies src -> $2)
             args: vec![helper.to_string_lossy().to_string(), "{output}".into()],
             sample_rate: 24000,
+            timeout_secs: 300,
             host_reference: None,
             expert_reference: None,
             host_reference_text: None,
@@ -404,12 +510,87 @@ mod tests {
         assert!(pcm.samples.iter().all(|&s| s == 5));
     }
 
+    #[tokio::test]
+    async fn local_tts_rejects_stereo_wav() {
+        let helper =
+            std::env::temp_dir().join(format!("aftercode-runner-{}.sh", uuid::Uuid::new_v4()));
+        let src_wav =
+            std::env::temp_dir().join(format!("aftercode-src-{}.wav", uuid::Uuid::new_v4()));
+        write_wav_custom(&src_wav, 1, 2, 24000, 16, &[5i16; 64]);
+        std::fs::write(
+            &helper,
+            format!("#!/bin/sh\ncp '{}' \"$1\"\n", src_wav.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let provider = LocalTts {
+            command: "/bin/sh".into(),
+            args: vec![helper.to_string_lossy().to_string(), "{output}".into()],
+            sample_rate: 24000,
+            timeout_secs: 300,
+            host_reference: None,
+            expert_reference: None,
+            host_reference_text: None,
+            expert_reference_text: None,
+        };
+
+        let err = provider
+            .synthesize("hello", VoiceRole::Host, Language::En)
+            .await
+            .unwrap_err();
+        std::fs::remove_file(&helper).ok();
+        std::fs::remove_file(&src_wav).ok();
+        assert!(err.to_string().contains("must be mono"));
+    }
+
+    #[tokio::test]
+    async fn local_tts_rejects_wrong_sample_rate() {
+        let helper =
+            std::env::temp_dir().join(format!("aftercode-runner-{}.sh", uuid::Uuid::new_v4()));
+        let src_wav =
+            std::env::temp_dir().join(format!("aftercode-src-{}.wav", uuid::Uuid::new_v4()));
+        write_wav_i16_mono(&src_wav, 22050, &[5i16; 64]);
+        std::fs::write(
+            &helper,
+            format!("#!/bin/sh\ncp '{}' \"$1\"\n", src_wav.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let provider = LocalTts {
+            command: "/bin/sh".into(),
+            args: vec![helper.to_string_lossy().to_string(), "{output}".into()],
+            sample_rate: 24000,
+            timeout_secs: 300,
+            host_reference: None,
+            expert_reference: None,
+            host_reference_text: None,
+            expert_reference_text: None,
+        };
+
+        let err = provider
+            .synthesize("hello", VoiceRole::Host, Language::En)
+            .await
+            .unwrap_err();
+        std::fs::remove_file(&helper).ok();
+        std::fs::remove_file(&src_wav).ok();
+        assert!(err.to_string().contains("sample rate 22050"));
+    }
+
     #[test]
     fn local_tts_requires_command() {
         let mut cfg = base_cfg();
         cfg.local_tts_command = None;
         assert!(local_tts_from_cfg(&cfg).is_err());
         cfg.local_tts_command = Some("/bin/true".into());
+        cfg.local_tts_args = Some("{output}".into());
         cfg.local_tts_sample_rate = 22050;
         assert_eq!(local_tts_from_cfg(&cfg).unwrap().sample_rate(), 22050);
     }
@@ -432,6 +613,7 @@ mod tests {
             local_tts_command: None,
             local_tts_args: None,
             local_tts_sample_rate: 24000,
+            local_tts_timeout_secs: 300,
             local_tts_host_reference: None,
             local_tts_expert_reference: None,
             local_tts_host_reference_text: None,
