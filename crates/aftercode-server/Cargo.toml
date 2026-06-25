@@ -31,7 +31,7 @@ mp3lame-encoder = "0.2"
 aws-sdk-s3 = "1"
 aws-config = "1"
 base64 = "0.22"
-sha2 = "0.10"
+sha2 = "0.11"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
