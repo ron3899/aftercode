@@ -3,6 +3,8 @@ name = "aftercode-server"
 edition.workspace = true
 license.workspace = true
 version.workspace = true
+# Minimum supported Rust version: the aws-config / aws-sdk-s3 deps require 1.91.1.
+rust-version = "1.91.1"
 
 [[bin]]
 name = "aftercode-server"
